@@ -6,7 +6,6 @@ from datetime import datetime
 routes = ["B1", "B2", "B3", "T1", "T2"]
 
 while True:
-
     data = {
         "timestamp": datetime.now().isoformat(),
         "vehicle_id": f"BUS{random.randint(1, 30):03}",
