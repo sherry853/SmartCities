@@ -8,11 +8,20 @@ from pyspark.sql.types import (
     DoubleType
 )
 
+from pymongo import MongoClient
+
+
+# Create Spark Session
+
 spark = (
     SparkSession.builder
     .appName("SmartCityStreaming")
     .getOrCreate()
 )
+
+spark.sparkContext.setLogLevel("WARN")
+
+# Define traffic data schema
 
 schema = StructType([
     StructField("timestamp", StringType(), True),
@@ -23,6 +32,9 @@ schema = StructType([
     StructField("congestion_level", StringType(), True)
 ])
 
+
+# Read data from Kafka
+
 stream = (
     spark.readStream
     .format("kafka")
@@ -32,6 +44,9 @@ stream = (
     .load()
 )
 
+
+# Convert Kafka JSON into columns
+
 traffic = (
     stream
     .selectExpr("CAST(value AS STRING) AS json")
@@ -39,17 +54,62 @@ traffic = (
     .select("data.*")
 )
 
+
+# Validate incoming data
+
 valid_data = traffic.filter(
     (col("vehicle_count") >= 0) &
-    (col("average_speed") >= 0)
+    (col("average_speed") >= 0) &
+    col("location").isNotNull()
 )
+
+
+# Function to write each Spark partition to MongoDB
+
+
+def write_partition(rows):
+
+    client = MongoClient("mongodb://localhost:27017/")
+
+    db = client["smartcity"]
+
+    collection = db["traffic_readings"]
+
+    documents = []
+
+    for row in rows:
+        documents.append(row.asDict())
+
+    if documents:
+        collection.insert_many(
+            documents,
+            ordered=False
+        )
+
+    client.close()
+
+
+# Write each micro-batch to MongoDB
+
+def write_to_mongodb(batch_df, batch_id):
+
+    print(f"Processing batch: {batch_id}")
+
+    batch_df.foreachPartition(write_partition)
+
+
+# Start streaming query
 
 query = (
     valid_data.writeStream
-    .format("console")
+    .foreachBatch(write_to_mongodb)
     .outputMode("append")
-    .option("truncate", False)
     .start()
 )
+
+
+print("Spark Streaming is running...")
+print("Waiting for Kafka traffic data...")
+
 
 query.awaitTermination()
