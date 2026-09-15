@@ -8,7 +8,7 @@ spark = (
 )
 
 df = spark.read.csv(
-    "hdfs://localhost:9000/smartcity/traffic/traffic.csv",
+    "hdfs://localhost:9000/smartcity/traffic/historical_traffic.csv",
     header=True,
     inferSchema=True
 )
