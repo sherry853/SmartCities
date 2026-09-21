@@ -5,3 +5,10 @@ streamlit
 pandas
 numpy
 plotly
+
+# Spark streaming command
+$env:SPARK_HOME="C:\Users\User\AppData\Local\Programs\Python\Python310\Lib\site-packages\pyspark"
+$env:PYSPARK_PYTHON="C:\Users\User\AppData\Local\Programs\Python\Python310\python.exe"
+$env:PYSPARK_DRIVER_PYTHON="C:\Users\User\AppData\Local\Programs\Python\Python310\python.exe"
+
+& "$env:SPARK_HOME\bin\spark-submit.cmd" --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0 spark_streaming.py

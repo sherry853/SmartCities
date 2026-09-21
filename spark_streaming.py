@@ -12,7 +12,6 @@ from pymongo import MongoClient
 
 
 # Create Spark Session
-
 spark = (
     SparkSession.builder
     .appName("SmartCityStreaming")
@@ -22,7 +21,6 @@ spark = (
 spark.sparkContext.setLogLevel("WARN")
 
 # Define traffic data schema
-
 schema = StructType([
     StructField("timestamp", StringType(), True),
     StructField("sensor_id", StringType(), True),
@@ -34,7 +32,6 @@ schema = StructType([
 
 
 # Read data from Kafka
-
 stream = (
     spark.readStream
     .format("kafka")
@@ -46,7 +43,6 @@ stream = (
 
 
 # Convert Kafka JSON into columns
-
 traffic = (
     stream
     .selectExpr("CAST(value AS STRING) AS json")
@@ -56,7 +52,6 @@ traffic = (
 
 
 # Validate incoming data
-
 valid_data = traffic.filter(
     (col("vehicle_count") >= 0) &
     (col("average_speed") >= 0) &
@@ -65,16 +60,10 @@ valid_data = traffic.filter(
 
 
 # Function to write each Spark partition to MongoDB
-
-
 def write_partition(rows):
-
     client = MongoClient("mongodb://localhost:27017/")
-
     db = client["smartcity"]
-
     collection = db["traffic_readings"]
-
     documents = []
 
     for row in rows:
@@ -85,21 +74,15 @@ def write_partition(rows):
             documents,
             ordered=False
         )
-
     client.close()
 
 
 # Write each micro-batch to MongoDB
-
 def write_to_mongodb(batch_df, batch_id):
-
     print(f"Processing batch: {batch_id}")
-
     batch_df.foreachPartition(write_partition)
 
-
 # Start streaming query
-
 query = (
     valid_data.writeStream
     .foreachBatch(write_to_mongodb)
