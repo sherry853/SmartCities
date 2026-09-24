@@ -1,3 +1,4 @@
+library: 
 pyspark
 kafka-python
 pymongo
@@ -6,7 +7,7 @@ pandas
 numpy
 plotly
 
-# Spark streaming command
+# Spark streaming setup
 $env:SPARK_HOME="C:\Users\User\AppData\Local\Programs\Python\Python310\Lib\site-packages\pyspark"
 $env:PYSPARK_PYTHON="C:\Users\User\AppData\Local\Programs\Python\Python310\python.exe"
 $env:PYSPARK_DRIVER_PYTHON="C:\Users\User\AppData\Local\Programs\Python\Python310\python.exe"

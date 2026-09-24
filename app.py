@@ -1,43 +1,68 @@
 
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 from pymongo import MongoClient
 
-# Page settings
+
+# Page Configuration
 st.set_page_config(
     page_title="SmartCities Dashboard",
-    page_icon="🏙️",
+    page_icon="🚦",
     layout="wide"
 )
 
-# Simple styling
+# Custom Styling
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #f5f7fb;
+    .main {
+        background-color: #f7f9fc;
     }
 
-    h1, h2, h3 {
-        color: #20304a;
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
     }
 
-    [data-testid="stMetric"] {
+    .dashboard-title {
+        font-size: 32px;
+        font-weight: 700;
+        color: #17365d;
+    }
+
+    .dashboard-subtitle {
+        font-size: 16px;
+        color: #64748b;
+        margin-bottom: 25px;
+    }
+
+    div[data-testid="stMetric"] {
         background-color: white;
-        border: 1px solid #e3e8f0;
-        padding: 18px;
+        padding: 20px;
         border-radius: 12px;
+        border: 1px solid #e2e8f0;
     }
 
-    [data-testid="stSidebar"] {
-        background-color: #edf2f8;
-    }
-
-    div[data-testid="stDataFrame"] {
-        border: 1px solid #e3e8f0;
-        border-radius: 10px;
+    h2, h3 {
+        color: #17365d;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Dashboard Header
+st.markdown(
+    '<div class="dashboard-title">🚦 SmartCities</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="dashboard-subtitle">'
+    'Smart City Traffic Monitoring Dashboard'
+    '</div>',
+    unsafe_allow_html=True
+)
+
+st.divider()
 
 # Connect to MongoDB
 @st.cache_resource
@@ -47,16 +72,6 @@ def connect_mongodb():
 
 db = connect_mongodb()
 traffic_collection = db["traffic_readings"]
-
-# Header
-st.title("🏙️ SmartCities")
-st.caption("Smart City Traffic Monitoring")
-st.markdown("---")
-
-# Refresh button
-if st.button("🔄 Refresh data"):
-    st.cache_data.clear()
-    st.rerun()
 
 # Load latest traffic data
 @st.cache_data(ttl=5)
@@ -72,139 +87,293 @@ def load_traffic():
 df = load_traffic()
 
 if df.empty:
-    st.info("No traffic data available yet. Start your Kafka producer and Spark Streaming.")
+    st.warning(
+        "No traffic data found. Please check that "
+        "historical_traffic.csv is in your project folder."
+    )
     st.stop()
 
-# Clean and prepare data
-df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-df = df.dropna(subset=["timestamp"])
+# Clean and Prepare Data
+if "sensor_id" in df.columns:
+    df = df.drop(columns=["sensor_id"])
 
-df["vehicle_count"] = pd.to_numeric(
-    df["vehicle_count"], errors="coerce"
+if "timestamp" in df.columns:
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"],
+        errors="coerce"
+    )
+
+numeric_columns = [
+    "vehicle_count",
+    "average_speed",
+    "speed"
+]
+
+for column in numeric_columns:
+    if column in df.columns:
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce"
+        )
+
+if "timestamp" in df.columns:
+    df = df.dropna(subset=["timestamp"])
+
+if "vehicle_count" in df.columns:
+    df = df.dropna(subset=["vehicle_count"])
+
+# Sidebar Filters
+st.sidebar.title("Dashboard Filters")
+
+filtered_df = df.copy()
+
+if "location" in filtered_df.columns:
+    locations = sorted(
+        filtered_df["location"]
+        .dropna()
+        .astype(str)
+        .unique()
+    )
+
+    selected_locations = st.sidebar.multiselect(
+        "Select Location",
+        options=locations,
+        default=locations
+    )
+
+    if selected_locations:
+        filtered_df = filtered_df[
+            filtered_df["location"].astype(str).isin(
+                selected_locations
+            )
+        ]
+    else:
+        filtered_df = filtered_df.iloc[0:0]
+
+if "timestamp" in filtered_df.columns and not filtered_df.empty:
+    min_date = filtered_df["timestamp"].min().date()
+    max_date = filtered_df["timestamp"].max().date()
+
+    selected_dates = st.sidebar.date_input(
+        "Select Date Range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+
+    if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
+        start_date, end_date = selected_dates
+
+        filtered_df = filtered_df[
+            (filtered_df["timestamp"].dt.date >= start_date)
+            & (filtered_df["timestamp"].dt.date <= end_date)
+        ]
+
+st.sidebar.divider()
+
+st.sidebar.caption(
+    "Smart City Data Pipeline"
 )
-df["average_speed"] = pd.to_numeric(
-    df["average_speed"], errors="coerce"
-)
-df = df.dropna(subset=["vehicle_count", "average_speed"])
 
-# Sidebar filter
-st.sidebar.header("Dashboard Filters")
-
-locations = sorted(df["location"].dropna().unique())
-
-selected_locations = st.sidebar.multiselect(
-    "Select location",
-    locations,
-    default=locations
-)
-
-filtered_df = df[
-    df["location"].isin(selected_locations)
-].copy()
-
+# Check Filtered Data
 if filtered_df.empty:
-    st.warning("No data for the selected locations.")
+    st.info("No traffic records match the selected filters.")
     st.stop()
 
-# Summary metrics
+# Key Traffic Metrics
 st.subheader("Traffic Overview")
+
+total_records = len(filtered_df)
+total_vehicles = filtered_df["vehicle_count"].sum()
+average_vehicles = filtered_df["vehicle_count"].mean()
+
+if "average_speed" in filtered_df.columns:
+    avg_speed = filtered_df["average_speed"].mean()
+elif "speed" in filtered_df.columns:
+    avg_speed = filtered_df["speed"].mean()
+else:
+    avg_speed = None
 
 col1, col2, col3, col4 = st.columns(4)
 
 col1.metric(
-    "Total Vehicles",
-    f"{int(filtered_df['vehicle_count'].sum()):,}"
+    "Total Records",
+    f"{total_records:,}"
 )
 
 col2.metric(
-    "Average Speed",
-    f"{filtered_df['average_speed'].mean():.1f} km/h"
+    "Total Vehicles",
+    f"{total_vehicles:,.0f}"
 )
 
 col3.metric(
-    "High Congestion Events",
-    int((filtered_df["congestion_level"] == "High").sum())
+    "Average Vehicle Count",
+    f"{average_vehicles:.1f}"
 )
 
-col4.metric(
-    "Locations",
-    filtered_df["location"].nunique()
-)
-
-st.markdown("")
-
-# Charts
-st.subheader("Traffic Trends")
-
-left, right = st.columns(2)
-
-with left:
-    st.markdown("#### Vehicle Count Over Time")
-
-    chart_data = (
-        filtered_df
-        .sort_values("timestamp")
-        .set_index("timestamp")[["vehicle_count"]]
+if avg_speed is not None and pd.notna(avg_speed):
+    col4.metric(
+        "Average Speed",
+        f"{avg_speed:.1f} km/h"
+    )
+else:
+    col4.metric(
+        "Average Speed",
+        "Not available"
     )
 
-    st.line_chart(chart_data)
+st.divider()
 
-with right:
-    st.markdown("#### Average Speed by Location")
+# Traffic Charts
+st.subheader("Traffic Analysis")
 
-    speed_data = (
-        filtered_df
-        .groupby("location")["average_speed"]
-        .mean()
-        .sort_values(ascending=False)
-    )
+chart_col1, chart_col2 = st.columns(2)
 
-    st.bar_chart(speed_data)
+with chart_col1:
+    st.markdown("### Vehicle Count Over Time")
 
-# Congestion breakdown
-st.markdown("---")
+    if "timestamp" in filtered_df.columns:
+        traffic_over_time = (
+            filtered_df
+            .sort_values("timestamp")
+            .set_index("timestamp")
+        )
+
+        st.line_chart(
+            traffic_over_time["vehicle_count"],
+            use_container_width=True
+        )
+    else:
+        st.info("Timestamp data is unavailable.")
+
+with chart_col2:
+    st.markdown("### Average Speed by Location")
+
+    speed_column = None
+
+    if "average_speed" in filtered_df.columns:
+        speed_column = "average_speed"
+    elif "speed" in filtered_df.columns:
+        speed_column = "speed"
+
+    if speed_column and "location" in filtered_df.columns:
+        speed_by_location = (
+            filtered_df
+            .groupby("location")[speed_column]
+            .mean()
+            .sort_values(ascending=False)
+        )
+
+        st.bar_chart(
+            speed_by_location,
+            use_container_width=True
+        )
+    else:
+        st.info("Speed or location data is unavailable.")
+
+st.divider()
+
+# Congestion Summary
 st.subheader("Congestion Summary")
 
-congestion_counts = (
-    filtered_df["congestion_level"]
-    .value_counts()
-    .rename_axis("Congestion Level")
-    .reset_index(name="Events")
-)
+if "vehicle_count" in filtered_df.columns:
+    congestion_threshold = 50
 
-left, right = st.columns([1, 2])
+    congested_records = filtered_df[
+        filtered_df["vehicle_count"] >= congestion_threshold
+    ]
 
-with left:
-    st.dataframe(
-        congestion_counts,
-        hide_index=True,
-        use_container_width=True
+    congestion_percentage = (
+        len(congested_records) / len(filtered_df)
+    ) * 100
+
+    congestion_col1, congestion_col2 = st.columns(2)
+
+    congestion_col1.metric(
+        "High Traffic Records",
+        f"{len(congested_records):,}"
     )
 
-with right:
-    st.bar_chart(
-        congestion_counts.set_index("Congestion Level")
+    congestion_col2.metric(
+        "High Traffic Percentage",
+        f"{congestion_percentage:.1f}%"
     )
 
-# Recent records
-st.markdown("---")
-st.subheader("Recent Traffic Readings")
+    st.caption(
+        "High traffic is defined here as 50 or more vehicles "
+        "in one record. This is a simple project threshold, "
+        "not an official traffic classification."
+    )
 
-recent_df = (
-    filtered_df
-    .sort_values("timestamp", ascending=False)
-    .head(20)
-    .copy()
+    if "location" in filtered_df.columns:
+        st.markdown("### High Traffic by Location")
+
+        congestion_by_location = (
+            filtered_df.assign(
+                High_Traffic=(
+                    filtered_df["vehicle_count"]
+                    >= congestion_threshold
+                )
+            )
+            .groupby("location")["High_Traffic"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
+        congestion_by_location.index.name = "Location"
+        congestion_by_location.name = "High Traffic Records"
+
+        st.bar_chart(
+            congestion_by_location,
+            use_container_width=True
+        )
+
+st.divider()
+
+# Recent Traffic Records
+st.subheader("Recent Traffic Records")
+
+display_df = filtered_df.copy()
+
+if "timestamp" in display_df.columns:
+    display_df["timestamp"] = (
+        display_df["timestamp"]
+        .dt.strftime("%d %b %Y, %I:%M %p")
+    )
+
+column_names = {
+    "timestamp": "Date and Time",
+    "location": "Location",
+    "vehicle_count": "Vehicle Count",
+    "average_speed": "Average Speed (km/h)",
+    "speed": "Speed (km/h)",
+    "congestion": "Congestion Level"
+}
+
+display_df = display_df.rename(
+    columns=column_names
 )
 
-recent_df["timestamp"] = (
-    recent_df["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+display_df = display_df.drop(
+    columns=["sensor_id"],
+    errors="ignore"
 )
+
+if "Date and Time" in display_df.columns:
+    display_df = display_df.sort_values(
+        "Date and Time",
+        ascending=False
+    )
 
 st.dataframe(
-    recent_df,
-    hide_index=True,
-    use_container_width=True
+    display_df.head(20),
+    use_container_width=True,
+    hide_index=True
 )
 
-st.caption("SmartFlow | Big Data Technologies Project")
+# Footer
+st.divider()
+
+st.caption(
+    "Smart City Traffic Monitoring System"
+)
